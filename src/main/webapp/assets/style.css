@@ -1,0 +1,18 @@
+body { font-family: system-ui, Arial, sans-serif; background:#f6f7fb; margin:0; }
+.container { max-width: 900px; margin: 40px auto; padding: 0 16px; }
+.card { background:#fff; border-radius: 14px; padding: 18px; box-shadow: 0 6px 18px rgba(0,0,0,.08); }
+.nav { display:flex; justify-content:space-between; align-items:center; margin-bottom: 14px; }
+.brand { font-weight:700; font-size: 18px; }
+.pill { background:#eef2ff; padding: 8px 10px; border-radius: 999px; }
+.grid { display:grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 760px){ .grid{ grid-template-columns:1fr; } }
+label { display:block; margin-top:10px; font-size: 13px; color:#444; }
+input { width:100%; padding:10px; border:1px solid #ddd; border-radius:10px; margin-top:6px; }
+.button { display:inline-block; border:none; cursor:pointer; padding:10px 12px; border-radius:12px; background:#111827; color:#fff; text-decoration:none; margin-top:12px; }
+.button.secondary { background:#e5e7eb; color:#111827; }
+.row { display:flex; gap:10px; flex-wrap:wrap; }
+.badge { display:inline-block; background:#dcfce7; padding:6px 10px; border-radius:999px; }
+.small { color:#666; font-size: 13px; }
+.kpiRow { display:flex; gap: 18px; margin-top: 8px; }
+.label { color:#666; font-size: 12px; }
+.value { font-size: 26px; font-weight: 700; }
