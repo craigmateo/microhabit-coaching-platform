@@ -23,7 +23,7 @@ https://github.com/user-attachments/assets/cddb1c5c-0977-4063-b403-91106557b67e
 
 ## Tech Stack
 
-- Backend: (add your backend language/framework)
+- Backend: Java
 - Database: MySQL / MariaDB
 - Frontend: HTML / CSS / JavaScript
 - Build Tool: (e.g. Maven, Gradle, npm)
