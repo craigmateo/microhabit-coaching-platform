@@ -8,15 +8,30 @@
 </head>
 <body>
 
+<%
+  String msg = request.getParameter("msg");
+  if (msg == null) msg = "";
+
+  // Optional "back" target
+  // message.jsp?msg=...&back=dashboard
+  String back = request.getParameter("back");
+  String backUrl = "index.jsp";
+  if ("dashboard".equalsIgnoreCase(back)) {
+    backUrl = request.getContextPath() + "/dashboard";
+  } else if ("login".equalsIgnoreCase(back)) {
+    backUrl = "login.jsp";
+  } else if ("register".equalsIgnoreCase(back)) {
+    backUrl = "register.jsp";
+  }
+%>
+
 <div class="container">
   <div class="card">
-    <h2>Update</h2>
-    <p class="badge">
-      <%= request.getParameter("msg") == null ? "" : request.getParameter("msg") %>
-    </p>
+    <h2>Message</h2>
+    <p class="badge"><%= msg %></p>
 
-    <div style="margin-top:14px;">
-      <a class="button" href="<%= request.getContextPath() %>/dashboard">Back to Dashboard</a>
+    <div style="margin-top:16px;">
+      <a class="button" href="<%= backUrl %>">Back</a>
       <a class="button secondary" href="<%= request.getContextPath() %>/">Home</a>
     </div>
   </div>

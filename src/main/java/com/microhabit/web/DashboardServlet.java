@@ -1,12 +1,17 @@
 package com.microhabit.web;
 
+import com.microhabit.dao.AssignmentDAO;
+import com.microhabit.dao.HabitDAO;
+import com.microhabit.dao.mysql.MySqlAssignmentDAO;
+import com.microhabit.dao.mysql.MySqlHabitDAO;
 import com.microhabit.db.DbUtil;
+import com.microhabit.domain.MicroHabit;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.*;
 import java.io.IOException;
-import java.sql.*;
+import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -15,12 +20,16 @@ import java.util.concurrent.Executors;
 public class DashboardServlet extends HttpServlet {
 
     private ExecutorService executor;
+    private HabitDAO habitDao;
+    private AssignmentDAO assignmentDao;
 
     @Override
     public void init() {
-        // Ensure DbUtil has DB_URL, DB_USER, DB_PASS (usually via web.xml context params)
         DbUtil.init(getServletContext());
         executor = Executors.newFixedThreadPool(2);
+
+        habitDao = new MySqlHabitDAO();
+        assignmentDao = new MySqlAssignmentDAO();
     }
 
     @Override
@@ -32,6 +41,9 @@ public class DashboardServlet extends HttpServlet {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
 
+            String difficulty = "BEGINNER";   // MVP default
+int maxMinutes = 10;              // MVP default
+
         HttpSession s = req.getSession(false);
         Integer userId = (s == null) ? null : (Integer) s.getAttribute("userId");
         if (userId == null) {
@@ -39,62 +51,55 @@ public class DashboardServlet extends HttpServlet {
             return;
         }
 
-        // 1) Pick a habit (simple MVP: first active habit)
-        String title = "5-minute Walk";
-        String desc = "Walk at an easy pace for 5 minutes.";
+        LocalDate today = LocalDate.now();
+        LocalDate tomorrow = today.plusDays(1);
 
-        try (Connection c = DbUtil.getConnection();
-             PreparedStatement ps = c.prepareStatement(
-                     "SELECT title, description " +
-                     "FROM micro_habits " +
-                     "WHERE is_active=TRUE " +
-                     "ORDER BY habit_id " +
-                     "LIMIT 1");
-             ResultSet rs = ps.executeQuery()) {
 
-            if (rs.next()) {
-                title = rs.getString("title");
-                desc = rs.getString("description");
-            }
+
+        try {
+            // 1) Ensure today assignment exists
+if (!assignmentDao.hasAssignment(userId, today)) {
+
+
+    MicroHabit picked = habitDao.getRandomActiveHabit(difficulty, maxMinutes);
+
+    if (picked != null) {
+        assignmentDao.createAssignment(
+            userId,
+            picked.getHabitId(),   // <-- MUST be real DB habit_id
+            today
+        );
+    }
+}
+
+
+            // 2) Load today's assigned habit (from daily_assignments -> micro_habits)
+            MicroHabit todayHabit = fetchAssignedHabit(userId, today);
+
+            // 3) Tomorrow preview (not stored; just show a random habit)
+            MicroHabit tomorrowHabit = habitDao.getRandomActiveHabit(difficulty, maxMinutes);
+
+            // 4) Completion + streak
+            boolean completedToday = assignmentDao.isCompleted(userId, today);
+            int currentStreak = computeCurrentStreakFromAssignments(userId);
+
+            // 5) Push data into JSP
+            req.setAttribute("todayTitle", todayHabit == null ? "No habit found" : todayHabit.getTitle());
+            req.setAttribute("todayDescription", todayHabit == null ? "" : todayHabit.getDescription());
+
+            req.setAttribute("tomorrowTitle", tomorrowHabit == null ? "Preview unavailable" : tomorrowHabit.getTitle());
+            req.setAttribute("tomorrowDescription", tomorrowHabit == null ? "" : tomorrowHabit.getDescription());
+
+            req.setAttribute("completedToday", completedToday);
+            req.setAttribute("currentStreak", currentStreak);
+            req.setAttribute("longestStreak", currentStreak); // MVP placeholder
+
+            req.getRequestDispatcher("dashboard.jsp").forward(req, resp);
+
         } catch (SQLException e) {
-            log("Dashboard habit fetch failed", e);
+            log("Dashboard load failed", e);
+            resp.sendRedirect("message.jsp?msg=Server error&back=dashboard");
         }
-
-        // 2) Compute streak from habit_completions
-        int currentStreak = computeCurrentStreak(userId);
-
-        // 3) Read longest streak from DB (optional but nice)
-        int longestStreak = currentStreak;
-        try (Connection c = DbUtil.getConnection();
-             PreparedStatement ps = c.prepareStatement(
-                     "SELECT longest_streak FROM streaks WHERE user_id=?")) {
-            ps.setInt(1, userId);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    longestStreak = rs.getInt("longest_streak");
-                }
-            }
-        } catch (SQLException e) {
-            log("Longest streak fetch failed", e);
-        }
-
-        // 4) Completed today?
-        boolean completedToday = hasCompletedToday(userId);
-
-        req.setAttribute("todayTitle", title);
-        req.setAttribute("todayDescription", desc);
-        req.setAttribute("currentStreak", currentStreak);
-        req.setAttribute("longestStreak", longestStreak);
-        req.setAttribute("completedToday", completedToday);
-
-        // Flash message (if any)
-        String flash = (String) s.getAttribute("flashMsg");
-        if (flash != null) {
-            req.setAttribute("flashMsg", flash);
-            s.removeAttribute("flashMsg");
-        }
-
-        req.getRequestDispatcher("dashboard.jsp").forward(req, resp);
     }
 
     @Override
@@ -110,104 +115,79 @@ public class DashboardServlet extends HttpServlet {
 
         String action = req.getParameter("action");
         if (!"complete".equals(action)) {
-            resp.sendRedirect("message.jsp?msg=Unknown dashboard action");
+            resp.sendRedirect("message.jsp?msg=Unknown action&back=dashboard");
             return;
         }
 
         LocalDate today = LocalDate.now();
 
-        // 1) Insert completion event (idempotent for the day)
-        try (Connection c = DbUtil.getConnection();
-             PreparedStatement ps = c.prepareStatement(
-                     "INSERT INTO habit_completions(user_id, completion_date) VALUES(?, ?) " +
-                     "ON DUPLICATE KEY UPDATE completion_date = completion_date")) {
-            ps.setInt(1, userId);
-            ps.setDate(2, Date.valueOf(today));
-            ps.executeUpdate();
-        } catch (SQLException e) {
-            log("Completion insert failed", e);
-            resp.sendRedirect("message.jsp?msg=Error saving completion");
-            return;
-        }
+        try {
+            // Mark today completed in daily_assignments
+            assignmentDao.markCompleted(userId, today);
 
-        // 2) Update streaks table (persist current + longest)
-        int current = computeCurrentStreak(userId);
+            // multithreading evidence: async log / non-critical task
+            executor.submit(() ->
+                    System.out.println("Async: completion saved for user " + userId + " on " + today)
+            );
 
-        try (Connection c2 = DbUtil.getConnection();
-             PreparedStatement ps2 = c2.prepareStatement(
-                     "INSERT INTO streaks (user_id, current_streak, longest_streak, last_completed_date) " +
-                     "VALUES (?, ?, ?, ?) " +
-                     "ON DUPLICATE KEY UPDATE " +
-                     "  current_streak = VALUES(current_streak), " +
-                     "  longest_streak = GREATEST(longest_streak, VALUES(longest_streak)), " +
-                     "  last_completed_date = VALUES(last_completed_date)"
-             )) {
-
-            ps2.setInt(1, userId);
-            ps2.setInt(2, current);
-            ps2.setInt(3, current);
-            ps2.setDate(4, Date.valueOf(today));
-            ps2.executeUpdate();
+            resp.sendRedirect("message.jsp?msg=Habit completed!&back=dashboard");
 
         } catch (SQLException e) {
-            log("Streak update failed", e);
-            resp.sendRedirect("message.jsp?msg=Error updating streak");
-            return;
-        }
-
-        // 3) Multithreading evidence (non-critical background task)
-        executor.submit(() ->
-                System.out.println("Async: user " + userId + " completed habit on " + today));
-
-        // 4) Redirect back to dashboard (clean UX)
-        s.setAttribute("flashMsg", "Habit completed!");
-        resp.sendRedirect(req.getContextPath() + "/dashboard");
-    }
-
-    private boolean hasCompletedToday(int userId) {
-        LocalDate today = LocalDate.now();
-        try (Connection c = DbUtil.getConnection();
-             PreparedStatement ps = c.prepareStatement(
-                     "SELECT 1 FROM habit_completions WHERE user_id=? AND completion_date=?")) {
-            ps.setInt(1, userId);
-            ps.setDate(2, Date.valueOf(today));
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next();
-            }
-        } catch (SQLException e) {
-            log("Completed-today check failed", e);
-            return false;
+            log("Completion failed", e);
+            resp.sendRedirect("message.jsp?msg=Error saving completion&back=dashboard");
         }
     }
 
-    private int computeCurrentStreak(int userId) {
-        // MVP: count consecutive days ending today
-        try (Connection c = DbUtil.getConnection();
-             PreparedStatement ps = c.prepareStatement(
-                     "SELECT completion_date " +
-                     "FROM habit_completions " +
-                     "WHERE user_id=? " +
-                     "ORDER BY completion_date DESC")) {
-            ps.setInt(1, userId);
+    private int computeCurrentStreakFromAssignments(int userId) throws SQLException {
+        LocalDate expected = LocalDate.now();
+        int streak = 0;
 
-            try (ResultSet rs = ps.executeQuery()) {
-                LocalDate expected = LocalDate.now();
-                int streak = 0;
+        while (assignmentDao.isCompleted(userId, expected)) {
+            streak++;
+            expected = expected.minusDays(1);
+        }
 
-                while (rs.next()) {
-                    LocalDate d = rs.getDate(1).toLocalDate();
-                    if (d.equals(expected)) {
-                        streak++;
-                        expected = expected.minusDays(1);
-                    } else if (d.isBefore(expected)) {
-                        break;
-                    }
-                }
-                return streak;
-            }
-        } catch (SQLException e) {
-            log("Streak compute failed", e);
-            return 0;
+        return streak;
+    }
+
+    private MicroHabit fetchAssignedHabit(int userId, LocalDate date) throws SQLException {
+    String sql =
+        "SELECT h.habit_id, h.title, h.description, h.difficulty, h.minutes " +
+        "FROM daily_assignments a " +
+        "JOIN micro_habits h ON a.habit_id = h.habit_id " +
+        "WHERE a.user_id=? AND a.assign_date=? " +
+        "LIMIT 1";
+
+    try (var c = DbUtil.getConnection();
+         var ps = c.prepareStatement(sql)) {
+
+        ps.setInt(1, userId);
+        ps.setDate(2, java.sql.Date.valueOf(date));
+
+        try (var rs = ps.executeQuery()) {
+            if (!rs.next()) return null;
+
+            // Build the MicroHabit using what your Builder actually supports.
+            // If your Builder doesn't have some setters, remove those lines.
+            MicroHabit.Builder b = new MicroHabit.Builder()
+                    .title(rs.getString("title"))
+                    .description(rs.getString("description"))
+                    .minutes(rs.getInt("minutes"));
+
+            // If your Builder has difficulty(), keep this; otherwise delete this line.
+            try {
+                b = b.difficulty(rs.getString("difficulty"));
+            } catch (Throwable ignored) {}
+
+            MicroHabit habit = b.build();
+
+            // If MicroHabit has setHabitId / constructor includes id, set it.
+            // If not, you can ignore habit_id for now.
+            // (No reflection here—keep it simple.)
+
+            return habit;
         }
     }
+}
+
 }

@@ -15,11 +15,11 @@ public class HabitService {
         String difficulty = strategy.pickDifficulty(fitnessLevel);
         int maxMinutes = strategy.pickMinutes(timeAvailability);
 
-        MicroHabit habit = habitDao.getRandomHabit(difficulty, maxMinutes);
+        MicroHabit habit = habitDao.getRandomActiveHabit(difficulty, maxMinutes);
 
         // Fallback so dashboard never breaks if table is empty or filters are too strict
         if (habit == null) {
-            habit = habitDao.getRandomHabit("BEGINNER", 60);
+            habit = habitDao.getRandomActiveHabit("BEGINNER", 60);
         }
         return habit;
     }
