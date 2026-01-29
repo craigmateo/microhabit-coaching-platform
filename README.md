@@ -7,6 +7,10 @@ The project is intentionally simple and end-to-end: schema → build → UI → 
 
 ---
 
+## Preview Video
+
+https://github.com/user-attachments/assets/cddb1c5c-0977-4063-b403-91106557b67e
+
 ## Features
 
 - User registration and authentication
@@ -19,7 +23,7 @@ The project is intentionally simple and end-to-end: schema → build → UI → 
 
 ## Tech Stack
 
-- Backend: (add your backend language/framework)
+- Backend: Java
 - Database: MySQL / MariaDB
 - Frontend: HTML / CSS / JavaScript
 - Build Tool: (e.g. Maven, Gradle, npm)
@@ -128,3 +132,4 @@ This confirms:
 ## License
 
 MIT (or your preferred license)
+
