@@ -18,7 +18,7 @@
       <input type="password" name="password" required />
       <button class="button" type="submit">Login</button>
     </form>
-    <p class="small">No account? <a href="register.jsp">Register</a></p>
+    <p class="small">No account? <a href="${pageContext.request.contextPath}/register">Register</a></p>
   </div>
 </div>
 </body>

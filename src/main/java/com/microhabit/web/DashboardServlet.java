@@ -41,39 +41,30 @@ public class DashboardServlet extends HttpServlet {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
 
-            String difficulty = "BEGINNER";   // MVP default
-int maxMinutes = 10;              // MVP default
+        // MVP defaults (later: load from profile)
+        String difficulty = "BEGINNER";
+        int maxMinutes = 10;
 
         HttpSession s = req.getSession(false);
         Integer userId = (s == null) ? null : (Integer) s.getAttribute("userId");
         if (userId == null) {
-            resp.sendRedirect("login.jsp");
+            resp.sendRedirect(req.getContextPath() + "/login");
             return;
         }
 
         LocalDate today = LocalDate.now();
-        LocalDate tomorrow = today.plusDays(1);
-
-
 
         try {
             // 1) Ensure today assignment exists
-if (!assignmentDao.hasAssignment(userId, today)) {
+            if (!assignmentDao.hasAssignment(userId, today)) {
+                MicroHabit picked = habitDao.getRandomActiveHabit(difficulty, maxMinutes);
+                if (picked != null) {
+                    // IMPORTANT: picked must include the DB habit_id
+                    assignmentDao.createAssignment(userId, picked.getHabitId(), today);
+                }
+            }
 
-
-    MicroHabit picked = habitDao.getRandomActiveHabit(difficulty, maxMinutes);
-
-    if (picked != null) {
-        assignmentDao.createAssignment(
-            userId,
-            picked.getHabitId(),   // <-- MUST be real DB habit_id
-            today
-        );
-    }
-}
-
-
-            // 2) Load today's assigned habit (from daily_assignments -> micro_habits)
+            // 2) Load today's assigned habit from DB
             MicroHabit todayHabit = fetchAssignedHabit(userId, today);
 
             // 3) Tomorrow preview (not stored; just show a random habit)
@@ -83,7 +74,7 @@ if (!assignmentDao.hasAssignment(userId, today)) {
             boolean completedToday = assignmentDao.isCompleted(userId, today);
             int currentStreak = computeCurrentStreakFromAssignments(userId);
 
-            // 5) Push data into JSP
+            // 5) Send to view
             req.setAttribute("todayTitle", todayHabit == null ? "No habit found" : todayHabit.getTitle());
             req.setAttribute("todayDescription", todayHabit == null ? "" : todayHabit.getDescription());
 
@@ -94,49 +85,49 @@ if (!assignmentDao.hasAssignment(userId, today)) {
             req.setAttribute("currentStreak", currentStreak);
             req.setAttribute("longestStreak", currentStreak); // MVP placeholder
 
-            req.getRequestDispatcher("dashboard.jsp").forward(req, resp);
+            req.getRequestDispatcher("/WEB-INF/views/dashboard.jsp").forward(req, resp);
 
         } catch (SQLException e) {
             log("Dashboard load failed", e);
-            resp.sendRedirect("message.jsp?msg=Server error&back=dashboard");
+            forwardMessage(req, resp, "Server error", "dashboard");
         }
     }
 
     @Override
-    protected void doPost(HttpServletRequest req, HttpServletResponse resp)
-            throws IOException {
+protected void doPost(HttpServletRequest req, HttpServletResponse resp)
+        throws ServletException, IOException {
 
-        HttpSession s = req.getSession(false);
-        Integer userId = (s == null) ? null : (Integer) s.getAttribute("userId");
-        if (userId == null) {
-            resp.sendRedirect("login.jsp");
-            return;
-        }
-
-        String action = req.getParameter("action");
-        if (!"complete".equals(action)) {
-            resp.sendRedirect("message.jsp?msg=Unknown action&back=dashboard");
-            return;
-        }
-
-        LocalDate today = LocalDate.now();
-
-        try {
-            // Mark today completed in daily_assignments
-            assignmentDao.markCompleted(userId, today);
-
-            // multithreading evidence: async log / non-critical task
-            executor.submit(() ->
-                    System.out.println("Async: completion saved for user " + userId + " on " + today)
-            );
-
-            resp.sendRedirect("message.jsp?msg=Habit completed!&back=dashboard");
-
-        } catch (SQLException e) {
-            log("Completion failed", e);
-            resp.sendRedirect("message.jsp?msg=Error saving completion&back=dashboard");
-        }
+    HttpSession s = req.getSession(false);
+    Integer userId = (s == null) ? null : (Integer) s.getAttribute("userId");
+    if (userId == null) {
+        resp.sendRedirect(req.getContextPath() + "/login");
+        return;
     }
+
+    String action = req.getParameter("action");
+    if (!"complete".equals(action)) {
+        forwardMessage(req, resp, "Unknown action", "dashboard");
+        return;
+    }
+
+    LocalDate today = LocalDate.now();
+
+    try {
+        assignmentDao.markCompleted(userId, today);
+
+        executor.submit(() ->
+                System.out.println("Async: completion saved for user " + userId + " on " + today)
+        );
+
+        // SHOW message view + Back to Dashboard
+        forwardMessage(req, resp, "Habit completed!", "dashboard");
+
+    } catch (SQLException e) {
+        log("Completion failed", e);
+        forwardMessage(req, resp, "Error saving completion", "dashboard");
+    }
+}
+
 
     private int computeCurrentStreakFromAssignments(int userId) throws SQLException {
         LocalDate expected = LocalDate.now();
@@ -151,43 +142,39 @@ if (!assignmentDao.hasAssignment(userId, today)) {
     }
 
     private MicroHabit fetchAssignedHabit(int userId, LocalDate date) throws SQLException {
-    String sql =
-        "SELECT h.habit_id, h.title, h.description, h.difficulty, h.minutes " +
-        "FROM daily_assignments a " +
-        "JOIN micro_habits h ON a.habit_id = h.habit_id " +
-        "WHERE a.user_id=? AND a.assign_date=? " +
-        "LIMIT 1";
+        String sql =
+                "SELECT h.habit_id, h.title, h.description, h.difficulty, h.minutes " +
+                "FROM daily_assignments a " +
+                "JOIN micro_habits h ON a.habit_id = h.habit_id " +
+                "WHERE a.user_id=? AND a.assign_date=? " +
+                "LIMIT 1";
 
-    try (var c = DbUtil.getConnection();
-         var ps = c.prepareStatement(sql)) {
+        try (var c = DbUtil.getConnection();
+             var ps = c.prepareStatement(sql)) {
 
-        ps.setInt(1, userId);
-        ps.setDate(2, java.sql.Date.valueOf(date));
+            ps.setInt(1, userId);
+            ps.setDate(2, java.sql.Date.valueOf(date));
 
-        try (var rs = ps.executeQuery()) {
-            if (!rs.next()) return null;
+            try (var rs = ps.executeQuery()) {
+                if (!rs.next()) return null;
 
-            // Build the MicroHabit using what your Builder actually supports.
-            // If your Builder doesn't have some setters, remove those lines.
-            MicroHabit.Builder b = new MicroHabit.Builder()
-                    .title(rs.getString("title"))
-                    .description(rs.getString("description"))
-                    .minutes(rs.getInt("minutes"));
+                // Build only what your Builder definitely supports
+                MicroHabit habit = new MicroHabit.Builder()
+                        .habitId(rs.getInt("habit_id"))      // <-- requires Builder.habitId(int)
+                        .title(rs.getString("title"))
+                        .description(rs.getString("description"))
+                        .minutes(rs.getInt("minutes"))
+                        .build();
 
-            // If your Builder has difficulty(), keep this; otherwise delete this line.
-            try {
-                b = b.difficulty(rs.getString("difficulty"));
-            } catch (Throwable ignored) {}
-
-            MicroHabit habit = b.build();
-
-            // If MicroHabit has setHabitId / constructor includes id, set it.
-            // If not, you can ignore habit_id for now.
-            // (No reflection here—keep it simple.)
-
-            return habit;
+                return habit;
+            }
         }
     }
-}
 
+    private void forwardMessage(HttpServletRequest req, HttpServletResponse resp, String msg, String back)
+            throws ServletException, IOException {
+        req.setAttribute("msg", msg);
+        req.setAttribute("back", back); // "dashboard", "login", "register", "home"
+        req.getRequestDispatcher("/WEB-INF/views/message.jsp").forward(req, resp);
+    }
 }

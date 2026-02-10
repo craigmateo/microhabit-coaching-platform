@@ -25,7 +25,7 @@ public class AuthServlet extends HttpServlet {
 
         String action = req.getParameter("action");
         if (action == null) {
-            resp.sendRedirect("message.jsp?msg=Missing action");
+            forwardMessage(req, resp, "Missing action", "home");
             return;
         }
 
@@ -41,40 +41,61 @@ public class AuthServlet extends HttpServlet {
                     handleLogout(req, resp);
                     break;
                 default:
-                    resp.sendRedirect("message.jsp?msg=Unknown action");
+                    forwardMessage(req, resp, "Unknown action", "home");
+                    break;
             }
         } catch (Exception ex) {
             log("AuthServlet error action=" + action, ex);
-            resp.sendRedirect("message.jsp?msg=Server error");
+            forwardMessage(req, resp, "Server error", "home");
         }
     }
 
-    private void handleRegister(HttpServletRequest req, HttpServletResponse resp) throws Exception {
+    private void handleRegister(HttpServletRequest req, HttpServletResponse resp)
+            throws ServletException, IOException {
+
         String name = req.getParameter("name");
         String email = req.getParameter("email");
         String password = req.getParameter("password");
 
         if (isBlank(name) || isBlank(email) || isBlank(password)) {
-            resp.sendRedirect("message.jsp?msg=Please fill all fields");
+            forwardMessage(req, resp, "Please fill all fields", "register");
             return;
         }
 
-        authService.register(name, email, password);
-        resp.sendRedirect("login.jsp");
+        try {
+            authService.register(name, email, password);
+        } catch (Exception e) {
+            log("Register failed", e);
+            forwardMessage(req, resp, "Registration failed (email may already exist).", "register");
+            return;
+        }
+
+        // redirect to controller route (not JSP)
+        resp.sendRedirect(req.getContextPath() + "/login");
     }
 
-    private void handleLogin(HttpServletRequest req, HttpServletResponse resp) throws Exception {
+    private void handleLogin(HttpServletRequest req, HttpServletResponse resp)
+            throws ServletException, IOException {
+
         String email = req.getParameter("email");
         String password = req.getParameter("password");
 
         if (isBlank(email) || isBlank(password)) {
-            resp.sendRedirect("message.jsp?msg=Please enter email and password");
+            forwardMessage(req, resp, "Please enter email and password", "login");
             return;
         }
 
-        UserDAO.UserRow user = authService.login(email, password);
+        UserDAO.UserRow user;
+        try {
+            user = authService.login(email, password);
+        } catch (Exception e) {
+            log("Login failed", e);
+            forwardMessage(req, resp, "Login error", "login");
+            return;
+        }
+
         if (user == null) {
-            resp.sendRedirect("message.jsp?msg=Invalid login");
+            forwardMessage(req, resp, "Invalid login", "login");
             return;
         }
 
@@ -85,10 +106,18 @@ public class AuthServlet extends HttpServlet {
         resp.sendRedirect(req.getContextPath() + "/dashboard");
     }
 
-    private void handleLogout(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+    private void handleLogout(HttpServletRequest req, HttpServletResponse resp)
+            throws IOException {
         HttpSession s = req.getSession(false);
         if (s != null) s.invalidate();
         resp.sendRedirect(req.getContextPath() + "/");
+    }
+
+    private void forwardMessage(HttpServletRequest req, HttpServletResponse resp, String msg, String back)
+            throws ServletException, IOException {
+        req.setAttribute("msg", msg);
+        req.setAttribute("back", back); // e.g. "login", "register", "dashboard", "home"
+        req.getRequestDispatcher("/WEB-INF/views/message.jsp").forward(req, resp);
     }
 
     private boolean isBlank(String s) {

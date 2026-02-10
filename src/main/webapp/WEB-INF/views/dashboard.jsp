@@ -1,27 +1,18 @@
 <%@ page contentType="text/html; charset=UTF-8" %>
+<%@ taglib prefix="c" uri="http://java.sun.com/jsp/jstl/core" %>
 <!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Dashboard – Micro-Habit Gym Coach</title>
-  <link rel="stylesheet" href="<%= request.getContextPath() %>/assets/style.css">
+  <link rel="stylesheet" href="${pageContext.request.contextPath}/assets/style.css">
 </head>
 <body>
-<%
-  // Safety: if opened directly without servlet/session
-  if (session.getAttribute("userId") == null) {
-    response.sendRedirect("login.jsp");
-    return;
-  }
-
-  boolean completedToday = Boolean.TRUE.equals(request.getAttribute("completedToday"));
-%>
 
 <div class="container">
   <div class="nav">
     <div class="brand">Micro-Habit Gym Coach</div>
     <div class="pill">
-      Logged in as: <b><%= session.getAttribute("userName") %></b>
+      Logged in as: <b>${userName}</b>
     </div>
   </div>
 
@@ -33,15 +24,18 @@
       <p class="badge">${todayTitle}</p>
       <p>${todayDescription}</p>
 
-      <% if (completedToday) { %>
-        <p class="badge">Completed today ✅</p>
-        <button class="button" type="button" disabled>Mark Completed</button>
-      <% } else { %>
-        <form method="post" action="<%= request.getContextPath() %>/dashboard">
-          <input type="hidden" name="action" value="complete"/>
-          <button class="button" type="submit">Mark Completed</button>
-        </form>
-      <% } %>
+      <c:choose>
+        <c:when test="${completedToday}">
+          <p class="badge">Completed today ✅</p>
+          <button class="button" type="button" disabled>Mark Completed</button>
+        </c:when>
+        <c:otherwise>
+          <form method="post" action="${pageContext.request.contextPath}/dashboard">
+            <input type="hidden" name="action" value="complete"/>
+            <button class="button" type="submit">Mark Completed</button>
+          </form>
+        </c:otherwise>
+      </c:choose>
 
       <p class="small">Small steps build consistency.</p>
     </div>
@@ -68,14 +62,13 @@
         <p class="small">${tomorrowDescription}</p>
       </div>
 
-      <!-- Logout via AuthServlet -->
-      <form method="post" action="<%= request.getContextPath() %>/auth" style="margin-top: 16px;">
+      <!-- Logout via controller -->
+      <form method="post" action="${pageContext.request.contextPath}/auth" style="margin-top:16px;">
         <input type="hidden" name="action" value="logout"/>
         <button class="button secondary" type="submit">Logout</button>
       </form>
 
-      <a class="button secondary" style="margin-top:10px; display:inline-block;"
-         href="<%= request.getContextPath() %>/">Home</a>
+      <a class="button secondary" href="${pageContext.request.contextPath}/">Home</a>
     </div>
   </div>
 </div>
